@@ -1,0 +1,338 @@
+name: Deploy CloudFormation to AWS
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - 'template/**'
+      - 'infra/**'
+      - 'application/**'
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        type: choice
+        options:
+          - dev
+          - qa
+          - prod
+      application:
+        description: 'Application name (leave empty for infra only)'
+        required: false
+        type: string
+      action:
+        description: 'Action to perform'
+        required: true
+        type: choice
+        options:
+          - deploy
+          - delete
+        default: deploy
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+  S3_BUCKET: your-cfn-templates-bucket
+
+jobs:
+  upload-templates:
+    name: Upload Templates to S3
+    runs-on:
+      - codebuild-shared-workflow-${{ github.run_id }}-${{ github.run_attempt }}
+    
+    outputs:
+      environment: ${{ steps.set-env.outputs.environment }}
+      s3-prefix: ${{ steps.set-env.outputs.s3-prefix }}
+      timestamp: ${{ steps.set-env.outputs.timestamp }}
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set Environment Variables
+        id: set-env
+        run: |
+          # Determine environment from input or branch
+          if [ -n "${{ github.event.inputs.environment }}" ]; then
+            ENV="${{ github.event.inputs.environment }}"
+          elif [ "${{ github.ref }}" == "refs/heads/main" ]; then
+            ENV="prod"
+          else
+            ENV="dev"
+          fi
+          
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          S3_PREFIX="templates/${ENV}/${TIMESTAMP}"
+          
+          echo "environment=${ENV}" >> $GITHUB_OUTPUT
+          echo "timestamp=${TIMESTAMP}" >> $GITHUB_OUTPUT
+          echo "s3-prefix=${S3_PREFIX}" >> $GITHUB_OUTPUT
+          
+          echo "Environment: ${ENV}"
+          echo "S3 Prefix: ${S3_PREFIX}"
+
+      - name: Verify AWS Identity
+        run: |
+          aws sts get-caller-identity
+          echo "Region: ${AWS_REGION}"
+          echo "S3 Bucket: ${S3_BUCKET}"
+
+      - name: Upload All Templates to S3
+        run: |
+          S3_PREFIX="${{ steps.set-env.outputs.s3-prefix }}"
+          
+          echo "📦 Uploading CloudFormation templates..."
+          aws s3 sync template/ \
+            s3://${S3_BUCKET}/${S3_PREFIX}/template/ \
+            --exclude "*" \
+            --include "*.yaml" \
+            --include "*.yml" \
+            --delete
+          
+          echo "✅ Templates uploaded to s3://${S3_BUCKET}/${S3_PREFIX}/template/"
+
+      - name: Upload Infrastructure Configs
+        run: |
+          ENV="${{ steps.set-env.outputs.environment }}"
+          S3_PREFIX="${{ steps.set-env.outputs.s3-prefix }}"
+          
+          if [ -d "infra/${ENV}" ]; then
+            echo "📦 Uploading infrastructure configs for ${ENV}..."
+            aws s3 sync infra/${ENV}/ \
+              s3://${S3_BUCKET}/${S3_PREFIX}/infra/${ENV}/ \
+              --delete
+            echo "✅ Infrastructure configs uploaded"
+          else
+            echo "⚠️ No infrastructure configs found for ${ENV}"
+          fi
+
+      - name: Upload Application Configs
+        if: github.event.inputs.application != ''
+        run: |
+          ENV="${{ steps.set-env.outputs.environment }}"
+          APP="${{ github.event.inputs.application }}"
+          S3_PREFIX="${{ steps.set-env.outputs.s3-prefix }}"
+          
+          if [ -d "application/${APP}/${ENV}" ]; then
+            echo "📦 Uploading application configs for ${APP}/${ENV}..."
+            aws s3 sync application/${APP}/${ENV}/ \
+              s3://${S3_BUCKET}/${S3_PREFIX}/application/${APP}/${ENV}/ \
+              --delete
+            echo "✅ Application configs uploaded"
+          else
+            echo "⚠️ No application configs found for ${APP}/${ENV}"
+          fi
+
+      - name: Validate CloudFormation Templates
+        run: |
+          echo "🔍 Validating CloudFormation templates..."
+          
+          for template in template/*.yaml; do
+            if [ -f "$template" ]; then
+              echo "Validating: $template"
+              aws cloudformation validate-template \
+                --template-body file://$template > /dev/null
+              echo "✅ Valid: $template"
+            fi
+          done
+
+  deploy-infra-ecs:
+    name: Deploy ECS Cluster
+    needs: upload-templates
+    if: github.event.inputs.action != 'delete'
+    runs-on:
+      - codebuild-shared-workflow-${{ github.run_id }}-${{ github.run_attempt }}
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Deploy ECS Stack
+        uses: aws-actions/aws-cloudformation-github-deploy@v1
+        with:
+          name: ${{ needs.upload-templates.outputs.environment }}-ecs-cluster
+          template: template/ecs.yaml
+          capabilities: CAPABILITY_NAMED_IAM
+          parameter-overrides: file://infra/${{ needs.upload-templates.outputs.environment }}/ecs/config.yaml
+          no-fail-on-empty-changeset: "1"
+
+  deploy-infra-sg:
+    name: Deploy Security Groups
+    needs: [upload-templates, deploy-infra-ecs]
+    if: github.event.inputs.action != 'delete'
+    runs-on:
+      - codebuild-shared-workflow-${{ github.run_id }}-${{ github.run_attempt }}
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Deploy Security Groups Stack
+        uses: aws-actions/aws-cloudformation-github-deploy@v1
+        with:
+          name: ${{ needs.upload-templates.outputs.environment }}-security-groups
+          template: template/sg.yaml
+          capabilities: CAPABILITY_NAMED_IAM
+          no-fail-on-empty-changeset: "1"
+
+  deploy-infra-alb:
+    name: Deploy Application Load Balancer
+    needs: [upload-templates, deploy-infra-sg]
+    if: github.event.inputs.action != 'delete'
+    runs-on:
+      - codebuild-shared-workflow-${{ github.run_id }}-${{ github.run_attempt }}
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Deploy ALB Stack
+        uses: aws-actions/aws-cloudformation-github-deploy@v1
+        with:
+          name: ${{ needs.upload-templates.outputs.environment }}-alb
+          template: template/alb.yaml
+          capabilities: CAPABILITY_NAMED_IAM
+          parameter-overrides: file://infra/${{ needs.upload-templates.outputs.environment }}/alb/config.yaml
+          no-fail-on-empty-changeset: "1"
+
+  deploy-shared-resources:
+    name: Deploy Shared Resources (ECR, CloudWatch, IAM)
+    needs: [upload-templates]
+    if: github.event.inputs.action != 'delete'
+    runs-on:
+      - codebuild-shared-workflow-${{ github.run_id }}-${{ github.run_attempt }}
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Deploy ECR Repositories
+        uses: aws-actions/aws-cloudformation-github-deploy@v1
+        with:
+          name: ${{ needs.upload-templates.outputs.environment }}-ecr
+          template: template/ecr.yaml
+          capabilities: CAPABILITY_NAMED_IAM
+          no-fail-on-empty-changeset: "1"
+
+      - name: Deploy CloudWatch Log Groups
+        uses: aws-actions/aws-cloudformation-github-deploy@v1
+        with:
+          name: ${{ needs.upload-templates.outputs.environment }}-cloudwatch
+          template: template/cloudwatch.yaml
+          capabilities: CAPABILITY_NAMED_IAM
+          no-fail-on-empty-changeset: "1"
+
+  deploy-application:
+    name: Deploy Application
+    needs: [upload-templates, deploy-infra-alb, deploy-shared-resources]
+    if: github.event.inputs.application != '' && github.event.inputs.action != 'delete'
+    runs-on:
+      - codebuild-shared-workflow-${{ github.run_id }}-${{ github.run_attempt }}
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Load IAM Policy
+        id: load-iam
+        run: |
+          ENV="${{ needs.upload-templates.outputs.environment }}"
+          APP="${{ github.event.inputs.application }}"
+          
+          if [ -f "application/${APP}/${ENV}/iam.json" ]; then
+            IAM_POLICY=$(cat application/${APP}/${ENV}/iam.json | jq -c)
+            echo "iam-policy=${IAM_POLICY}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Deploy IAM Roles
+        uses: aws-actions/aws-cloudformation-github-deploy@v1
+        with:
+          name: ${{ needs.upload-templates.outputs.environment }}-${{ github.event.inputs.application }}-iam
+          template: template/iam.yaml
+          capabilities: CAPABILITY_NAMED_IAM
+          parameter-overrides: |
+            Environment=${{ needs.upload-templates.outputs.environment }}
+            ApplicationName=${{ github.event.inputs.application }}
+          no-fail-on-empty-changeset: "1"
+
+      - name: Deploy Task Definition
+        uses: aws-actions/aws-cloudformation-github-deploy@v1
+        with:
+          name: ${{ needs.upload-templates.outputs.environment }}-${{ github.event.inputs.application }}-task
+          template: template/task_definition.yaml
+          capabilities: CAPABILITY_NAMED_IAM
+          parameter-overrides: file://application/${{ github.event.inputs.application }}/${{ needs.upload-templates.outputs.environment }}/config.yaml
+          no-fail-on-empty-changeset: "1"
+
+      - name: Deploy Target Group
+        uses: aws-actions/aws-cloudformation-github-deploy@v1
+        with:
+          name: ${{ needs.upload-templates.outputs.environment }}-${{ github.event.inputs.application }}-tg
+          template: template/target_group.yaml
+          capabilities: CAPABILITY_NAMED_IAM
+          parameter-overrides: file://application/${{ github.event.inputs.application }}/${{ needs.upload-templates.outputs.environment }}/config.yaml
+          no-fail-on-empty-changeset: "1"
+
+      - name: Deploy ECS Service
+        uses: aws-actions/aws-cloudformation-github-deploy@v1
+        with:
+          name: ${{ needs.upload-templates.outputs.environment }}-${{ github.event.inputs.application }}-service
+          template: template/ecs_service.yaml
+          capabilities: CAPABILITY_NAMED_IAM
+          parameter-overrides: file://application/${{ github.event.inputs.application }}/${{ needs.upload-templates.outputs.environment }}/config.yaml
+          no-fail-on-empty-changeset: "1"
+
+      - name: Deploy Service Auto Scaling
+        uses: aws-actions/aws-cloudformation-github-deploy@v1
+        with:
+          name: ${{ needs.upload-templates.outputs.environment }}-${{ github.event.inputs.application }}-autoscaling
+          template: template/service_autoscaling.yaml
+          capabilities: CAPABILITY_NAMED_IAM
+          parameter-overrides: file://application/${{ github.event.inputs.application }}/${{ needs.upload-templates.outputs.environment }}/config.yaml
+          no-fail-on-empty-changeset: "1"
+
+  cleanup:
+    name: Delete Stacks
+    needs: upload-templates
+    if: github.event.inputs.action == 'delete'
+    runs-on:
+      - codebuild-shared-workflow-${{ github.run_id }}-${{ github.run_attempt }}
+    
+    steps:
+      - name: Delete Application Stacks
+        if: github.event.inputs.application != ''
+        run: |
+          ENV="${{ needs.upload-templates.outputs.environment }}"
+          APP="${{ github.event.inputs.application }}"
+          
+          echo "🗑️ Deleting application stacks..."
+          
+          for stack in autoscaling service tg task iam; do
+            STACK_NAME="${ENV}-${APP}-${stack}"
+            if aws cloudformation describe-stacks --stack-name ${STACK_NAME} 2>/dev/null; then
+              echo "Deleting ${STACK_NAME}..."
+              aws cloudformation delete-stack --stack-name ${STACK_NAME}
+              aws cloudformation wait stack-delete-complete --stack-name ${STACK_NAME}
+              echo "✅ Deleted ${STACK_NAME}"
+            fi
+          done
+
+      - name: Delete Infrastructure Stacks
+        run: |
+          ENV="${{ needs.upload-templates.outputs.environment }}"
+          
+          echo "🗑️ Deleting infrastructure stacks..."
+          
+          for stack in alb security-groups ecs-cluster cloudwatch ecr; do
+            STACK_NAME="${ENV}-${stack}"
+            if aws cloudformation describe-stacks --stack-name ${STACK_NAME} 2>/dev/null; then
+              echo "Deleting ${STACK_NAME}..."
+              aws cloudformation delete-stack --stack-name ${STACK_NAME}
+              aws cloudformation wait stack-delete-complete --stack-name ${STACK_NAME}
+              echo "✅ Deleted ${STACK_NAME}"
+            fi
+          done
