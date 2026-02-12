@@ -1,0 +1,145 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Auto Scaling for ECS Service'
+
+Parameters:
+  Environment:
+    Type: String
+    Description: Environment name
+  
+  ApplicationName:
+    Type: String
+    Description: Name of the application
+  
+  ClusterName:
+    Type: String
+    Description: Name of the ECS Cluster
+  
+  ServiceName:
+    Type: String
+    Description: Name of the ECS Service
+  
+  MinCapacity:
+    Type: Number
+    Description: Minimum number of tasks
+    Default: 1
+  
+  MaxCapacity:
+    Type: Number
+    Description: Maximum number of tasks
+    Default: 4
+  
+  # CPU Scaling Parameters
+  EnableCPUScaling:
+    Type: String
+    Description: Enable CPU-based auto scaling
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Default: 'true'
+  
+  TargetCPUUtilization:
+    Type: Number
+    Description: Target CPU utilization percentage
+    Default: 70
+    MinValue: 1
+    MaxValue: 100
+  
+  CPUScaleInCooldown:
+    Type: Number
+    Description: Cooldown period for CPU scale-in (seconds)
+    Default: 300
+  
+  CPUScaleOutCooldown:
+    Type: Number
+    Description: Cooldown period for CPU scale-out (seconds)
+    Default: 60
+  
+  # Memory Scaling Parameters
+  EnableMemoryScaling:
+    Type: String
+    Description: Enable memory-based auto scaling
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Default: 'true'
+  
+  TargetMemoryUtilization:
+    Type: Number
+    Description: Target memory utilization percentage
+    Default: 80
+    MinValue: 1
+    MaxValue: 100
+  
+  MemoryScaleInCooldown:
+    Type: Number
+    Description: Cooldown period for memory scale-in (seconds)
+    Default: 300
+  
+  MemoryScaleOutCooldown:
+    Type: Number
+    Description: Cooldown period for memory scale-out (seconds)
+    Default: 60
+
+Conditions:
+  ShouldEnableCPUScaling: !Equals [!Ref EnableCPUScaling, 'true']
+  ShouldEnableMemoryScaling: !Equals [!Ref EnableMemoryScaling, 'true']
+
+Resources:
+  ScalableTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: !Ref MaxCapacity
+      MinCapacity: !Ref MinCapacity
+      ResourceId: !Sub 'service/${ClusterName}/${ServiceName}'
+      RoleARN: !Sub 'arn:aws:iam::${AWS::AccountId}:role/aws-service-role/ecs.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_ECSService'
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+
+  CPUScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Condition: ShouldEnableCPUScaling
+    Properties:
+      PolicyName: !Sub '${Environment}-${ApplicationName}-cpu-scaling'
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref ScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        TargetValue: !Ref TargetCPUUtilization
+        ScaleInCooldown: !Ref CPUScaleInCooldown
+        ScaleOutCooldown: !Ref CPUScaleOutCooldown
+
+  MemoryScalingPolicy:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Condition: ShouldEnableMemoryScaling
+    Properties:
+      PolicyName: !Sub '${Environment}-${ApplicationName}-memory-scaling'
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref ScalableTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageMemoryUtilization
+        TargetValue: !Ref TargetMemoryUtilization
+        ScaleInCooldown: !Ref MemoryScaleInCooldown
+        ScaleOutCooldown: !Ref MemoryScaleOutCooldown
+
+Outputs:
+  ScalableTargetId:
+    Description: ID of the Scalable Target
+    Value: !Ref ScalableTarget
+    Export:
+      Name: !Sub '${AWS::StackName}-ScalableTargetId'
+  
+  CPUScalingPolicyArn:
+    Condition: ShouldEnableCPUScaling
+    Description: ARN of the CPU Scaling Policy
+    Value: !Ref CPUScalingPolicy
+    Export:
+      Name: !Sub '${AWS::StackName}-CPUScalingPolicyArn'
+  
+  MemoryScalingPolicyArn:
+    Condition: ShouldEnableMemoryScaling
+    Description: ARN of the Memory Scaling Policy
+    Value: !Ref MemoryScalingPolicy
+    Export:
+      Name: !Sub '${AWS::StackName}-MemoryScalingPolicyArn'

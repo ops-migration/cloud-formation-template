@@ -1,0 +1,9 @@
+[
+  { "name": "NODE_ENV", "value": "development" },
+  { "name": "LOG_LEVEL", "value": "info" },
+  { "name": "PORT", "value": "3000" },
+  { "name": "APP_NAME", "value": "acquiflow" },
+  { "name": "ENVIRONMENT", "value": "dev" },
+  { "name": "API_TIMEOUT", "value": "30000" },
+  { "name": "CORS_ENABLED", "value": "true" }
+]

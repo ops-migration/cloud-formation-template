@@ -1,0 +1,75 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CodeBuild Project for GitHub Actions Self-Hosted Runners'
+
+Parameters:
+  Environment:
+    Type: String
+    Description: Environment name (dev/qa/stage/prod)
+  ProjectName:
+    Type: String
+    Description: Name of the CodeBuild Project
+  GitHubOrgName:
+    Type: String
+    Description: The GitHub Organization name for the webhook scope
+  WorkflowNamePattern:
+    Type: String
+    Description: Pattern to match the GitHub Workflow name
+  Team:
+    Type: String
+    Description: Team name for tagging resources
+  ComputeType:
+    Type: String
+    Default: BUILD_ARM1_MEDIUM
+
+Resources:
+  CodeBuildServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSCodeBuildDeveloperAccess
+
+  CodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Ref ProjectName
+      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+      Artifacts:
+        Type: NO_ARTIFACTS
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: !Ref ComputeType
+        Image: aws/codebuild/standard:5.0
+      Source:
+        Type: GITHUB
+        Location: !Sub "https://github.com/${GitHubOrgName}"
+      Triggers:
+        Webhook: true
+        ScopeConfiguration:
+          Name: !Ref GitHubOrgName
+          Scope: GITHUB_ORGANIZATION
+        FilterGroups:
+          - - Type: EVENT
+              Pattern: WORKFLOW_JOB_QUEUED
+            - Type: WORKFLOW_NAME
+              Pattern: !Ref WorkflowNamePattern
+      Tags:
+        - Key: Name
+          Value: !Ref ProjectName
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Team
+          Value: !Ref Team
+        - Key: ManagedBy
+          Value: CloudFormation
+
+Outputs:
+  ProjectArn:
+    Description: CodeBuild Project ARN
+    Value: !GetAtt CodeBuildProject.Arn

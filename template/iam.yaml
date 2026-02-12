@@ -1,0 +1,96 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'IAM Roles for ECS Task Execution (Minimal) and Task Role (Custom)'
+
+Parameters:
+  Environment:
+    Type: String
+    Description: Environment name
+  
+  ApplicationName:
+    Type: String
+    Description: Name of the application
+  
+  TaskRolePolicyDocument:
+    Type: String
+    Description: JSON policy document for task role (passed as string)
+    Default: '{}'
+
+Conditions:
+  HasTaskRolePolicy: !Not [!Equals [!Ref TaskRolePolicyDocument, '{}']]
+
+Resources:
+  # --- EXECUTION ROLE (Infrastructure/Minimal) ---
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${Environment}-ecs-execution-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Policies:
+        - PolicyName: MinimalExecutionPermissions
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-ecs-execution-role'
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  # --- TASK ROLE (Application/Custom) ---
+  ECSTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${Environment}-${ApplicationName}-ecs-task-role'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: 'sts:AssumeRole'
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-${ApplicationName}-ecs-task-role'
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  # --- ATTACH CUSTOM POLICY TO TASK ROLE ---
+  ECSTaskCustomPolicy:
+    Type: AWS::IAM::Policy
+    Condition: HasTaskRolePolicy
+    Properties:
+      PolicyName: !Sub '${Environment}-${ApplicationName}-custom-app-policy'
+      Roles: 
+        - !Ref ECSTaskRole
+      PolicyDocument: !Ref TaskRolePolicyDocument
+
+Outputs:
+  TaskExecutionRoleArn:
+    Description: ARN of the ECS Task Execution Role
+    Value: !GetAtt ECSTaskExecutionRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-TaskExecutionRoleArn'
+  
+  TaskRoleArn:
+    Description: ARN of the ECS Task Role
+    Value: !GetAtt ECSTaskRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-TaskRoleArn'

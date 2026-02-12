@@ -1,0 +1,87 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'ECR Repository for Docker Images'
+
+Parameters:
+  Environment:
+    Type: String
+    Description: Environment name
+  
+  ApplicationName:
+    Type: String
+    Description: Name of the application
+  
+  ImageTagMutability:
+    Type: String
+    Description: The tag mutability setting for the repository
+    AllowedValues:
+      - MUTABLE
+      - IMMUTABLE
+    Default: MUTABLE
+  
+  ScanOnPush:
+    Type: String
+    Description: Enable image scanning on push
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Default: 'true'
+  
+  LifecyclePolicyText:
+    Type: String
+    Description: JSON lifecycle policy for ECR
+    Default: |
+      {
+        "rules": [
+          {
+            "rulePriority": 1,
+            "description": "Keep last 10 images",
+            "selection": {
+              "tagStatus": "any",
+              "countType": "imageCountMoreThan",
+              "countNumber": 10
+            },
+            "action": {
+              "type": "expire"
+            }
+          }
+        ]
+      }
+
+Resources:
+  ECRRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub '${Environment}-${ApplicationName}-ecr'
+      ImageTagMutability: !Ref ImageTagMutability
+      ImageScanningConfiguration:
+        ScanOnPush: !Ref ScanOnPush
+      LifecyclePolicy:
+        LifecyclePolicyText: !Ref LifecyclePolicyText
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-${ApplicationName}-ecr'
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Application
+          Value: !Ref ApplicationName
+        - Key: ManagedBy
+          Value: CloudFormation
+
+Outputs:
+  RepositoryName:
+    Description: Name of the ECR Repository
+    Value: !Ref ECRRepository
+    Export:
+      Name: !Sub '${AWS::StackName}-RepositoryName'
+  
+  RepositoryArn:
+    Description: ARN of the ECR Repository
+    Value: !GetAtt ECRRepository.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-RepositoryArn'
+  
+  RepositoryUri:
+    Description: URI of the ECR Repository
+    Value: !GetAtt ECRRepository.RepositoryUri
+    Export:
+      Name: !Sub '${AWS::StackName}-RepositoryUri'

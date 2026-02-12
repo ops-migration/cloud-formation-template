@@ -1,0 +1,161 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Target Group with Host-based Listener Rules for ECS Services'
+
+Parameters:
+  Environment:
+    Type: String
+    Description: Environment name
+  
+  ServiceName:
+    Type: String
+    Description: Name of the service
+  
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC ID where Target Group will be created
+  
+  LoadBalancerName:
+    Type: String
+    Description: Name of the ALB
+  
+  HostHeaders:
+    Type: CommaDelimitedList
+    Description: Comma-separated list of host headers
+  
+  ListenerType:
+    Type: String
+    Description: Listener type to attach the rule to
+    AllowedValues:
+      - HTTP
+      - HTTPS
+    Default: HTTPS
+  
+  Priority:
+    Type: Number
+    Description: Priority for the listener rule (1-50000, lower number = higher priority)
+    MinValue: 1
+    MaxValue: 50000
+  
+  HealthCheckPath:
+    Type: String
+    Description: Health check path for target group
+  
+  HealthCheckIntervalSeconds:
+    Type: Number
+    Description: Health check interval in seconds
+    Default: 30
+  
+  HealthCheckTimeoutSeconds:
+    Type: Number
+    Description: Health check timeout in seconds
+    Default: 5
+  
+  HealthyThresholdCount:
+    Type: Number
+    Description: Number of consecutive successful health checks
+    Default: 2
+  
+  UnhealthyThresholdCount:
+    Type: Number
+    Description: Number of consecutive failed health checks
+    Default: 3
+  
+  TargetGroupPort:
+    Type: Number
+    Description: Port on which targets receive traffic
+    Default: 80
+  
+  DeregistrationDelay:
+    Type: Number
+    Description: Time to wait before deregistering targets
+    Default: 30
+  
+  HealthCheckMatcherHttpCode:
+    Type: String
+    Description: HTTP codes to use when checking for a successful response
+    Default: '200'
+
+Conditions:
+  AttachToHTTP: !Or
+    - !Equals [!Ref ListenerType, 'HTTP']
+  
+  AttachToHTTPS: !Or
+    - !Equals [!Ref ListenerType, 'HTTPS']
+
+Resources:
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub '${Environment}-${ServiceName}-tg'
+      Port: !Ref TargetGroupPort
+      Protocol: HTTP
+      VpcId: !Ref VpcId
+      TargetType: ip
+      HealthCheckEnabled: true
+      HealthCheckPath: !Ref HealthCheckPath
+      HealthCheckProtocol: HTTP
+      HealthCheckIntervalSeconds: !Ref HealthCheckIntervalSeconds
+      HealthCheckTimeoutSeconds: !Ref HealthCheckTimeoutSeconds
+      HealthyThresholdCount: !Ref HealthyThresholdCount
+      UnhealthyThresholdCount: !Ref UnhealthyThresholdCount
+      Matcher:
+        HttpCode: !Ref HealthCheckMatcherHttpCode
+      DeregistrationDelay: !Ref DeregistrationDelay
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-${ServiceName}-tg'
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Service
+          Value: !Ref ServiceName
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  HTTPListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Condition: AttachToHTTP
+    Properties:
+      ListenerArn:
+        Fn::ImportValue: !Sub '${LoadBalancerName}-HTTPListenerArn'
+      Priority: !Ref Priority
+      Conditions:
+        - Field: host-header
+          HostHeaderConfig:
+            Values: !Ref HostHeaders
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+
+  HTTPSListenerRule:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Condition: AttachToHTTPS
+    Properties:
+      ListenerArn:
+        Fn::ImportValue: !Sub '${LoadBalancerName}-HTTPSListenerArn'
+      Priority: !Ref Priority
+      Conditions:
+        - Field: host-header
+          HostHeaderConfig:
+            Values: !Ref HostHeaders
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+
+Outputs:
+  TargetGroupArn:
+    Description: ARN of the Target Group
+    Value: !Ref TargetGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-TargetGroupArn'
+  
+  TargetGroupFullName:
+    Description: Full name of the Target Group
+    Value: !GetAtt TargetGroup.TargetGroupFullName
+    Export:
+      Name: !Sub '${AWS::StackName}-TargetGroupFullName'
+  
+  TargetGroupName:
+    Description: Name of the Target Group
+    Value: !GetAtt TargetGroup.TargetGroupName
+    Export:
+      Name: !Sub '${AWS::StackName}-TargetGroupName'

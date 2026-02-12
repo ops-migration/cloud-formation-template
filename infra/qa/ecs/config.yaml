@@ -1,0 +1,16 @@
+# ECS Cluster Configuration for QA Environment
+Environment: qa
+ClusterName: qa-ecs-cluster
+EnableContainerInsights: enabled
+InstanceType : t4g.medium
+MinSize: 0
+MaxSize: 1
+DesiredCapacity: 1
+RootVolumeSize: 30
+
+# Network Configuration
+VpcId: vpc-xxxxxxxxxxxxxxxxx  # Replace with your VPC ID
+SubnetIds:
+  - subnet-xxxxxxxxxxxxxxxxx  # Replace with your subnet ID (AZ 1)
+  - subnet-zzzzzzzzzzzzzzzz  # Replace with your subnet ID (AZ 2)
+

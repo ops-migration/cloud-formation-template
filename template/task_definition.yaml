@@ -1,0 +1,156 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'ECS Task Definition for containerized applications'
+
+Parameters:
+  Environment:
+    Type: String
+    Description: Environment name
+  
+  ApplicationName:
+    Type: String
+    Description: Name of the application
+  
+  ExecutionRole:
+    Type: String
+    Description: Task execution role
+  
+  TaskRole:
+    Type: String
+    Description: Task role
+  
+  ContainerImage:
+    Type: String
+    Description: Docker image URI
+  
+  ContainerPort:
+    Type: Number
+    Description: Port on which the container listens
+    Default: 80
+  
+  CPU:
+    Type: String
+    Description: CPU units for the task (256, 512, 1024, 2048, 4096)
+    Default: '256'
+    AllowedValues:
+      - '256'
+      - '512'
+      - '1024'
+      - '2048'
+      - '4096'
+  
+  Memory:
+    Type: String
+    Description: Memory for the task in MB
+    Default: '512'
+    AllowedValues:
+      - '256'
+      - '512'
+      - '1024'
+      - '2048'
+      - '4096'
+  
+  LogGroupName:
+    Type: String
+    Description: CloudWatch Log Group name
+  
+  EnvironmentVariables:
+    Type: String
+    Description: JSON string of environment variables
+    Default: '[]'
+  
+  Secrets:
+    Type: String
+    Description: JSON string of secrets from AWS Secrets Manager or SSM
+    Default: '[]'
+  
+  APIContainerImage:
+    Type: String
+    Description: Docker image URI for API container
+    Default: ''
+  
+  APIContainerPort:
+    Type: Number
+    Description: Port for API container
+  
+  UIContainerImage:
+    Type: String
+    Description: Docker image URI for UI container
+    Default: ''
+  
+  UIContainerPort:
+    Type: Number
+    Description: Port for UI container
+    Default: 80
+
+Resources:
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub '${Environment}-${ApplicationName}'
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - EC2
+      Cpu: !Ref CPU
+      Memory: !Ref Memory
+      ExecutionRoleArn: !Ref ExecutionRole
+      TaskRoleArn: !Ref TaskRole
+      Volumes:
+        - Name: 'rails_public_assets'
+          Host: {}
+      ContainerDefinitions:
+          - Name: !Sub '${ApplicationName}-api'
+            Image: !Ref APIContainerImage
+            Essential: true
+            PortMappings:
+              - ContainerPort: !Ref APIContainerPort
+                Protocol: tcp
+            MountPoints:
+              - SourceVolume: 'rails_public_assets'
+                ContainerPath: '/rails/public'
+                ReadOnly: false
+            LogConfiguration:
+              LogDriver: awslogs
+              Options:
+                awslogs-group: !Ref LogGroupName
+                awslogs-region: !Ref AWS::Region
+                awslogs-stream-prefix: api
+          - !Ref AWS::NoValue
+          - Name: !Sub '${ApplicationName}-ui'
+            Image: !Ref UIContainerImage
+            Essential: true
+            PortMappings:
+              - ContainerPort: !Ref UIContainerPort
+                Protocol: tcp
+            MountPoints:
+              - SourceVolume: 'rails_public_assets'
+                ContainerPath: '/rails/public'
+                ReadOnly: true
+            LogConfiguration:
+              LogDriver: awslogs
+              Options:
+                awslogs-group: !Ref LogGroupName
+                awslogs-region: !Ref AWS::Region
+                awslogs-stream-prefix: ui
+          - !Ref AWS::NoValue
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-${ApplicationName}-task-def'
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Application
+          Value: !Ref ApplicationName
+        - Key: ManagedBy
+          Value: CloudFormation
+
+Outputs:
+  TaskDefinitionArn:
+    Description: ARN of the Task Definition
+    Value: !Ref TaskDefinition
+    Export:
+      Name: !Sub '${AWS::StackName}-TaskDefinitionArn'
+  
+  TaskDefinitionFamily:
+    Description: Family of the Task Definition
+    Value: !Sub '${Environment}-${ApplicationName}'
+    Export:
+      Name: !Sub '${AWS::StackName}-TaskDefinitionFamily'

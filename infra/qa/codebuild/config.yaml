@@ -1,0 +1,6 @@
+ProjectName: "qa-codebuild-runner"
+GitHubOrgName: "rpx"
+WorkflowNamePattern: ".*CI-CodeBuild.*"
+ComputeType: "BUILD_ARM1_MEDIUM"
+Environment: "qa"
+Team: "DevOps"

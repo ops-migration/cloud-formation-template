@@ -1,0 +1,136 @@
+# acquiflow Application Configuration for Dev Environment
+
+# ECS Service Parameters
+Environment: dev
+ApplicationName: acquiflow
+ClusterName: dev-ecs-cluster
+DesiredCount: 1
+MinCapacity: 1
+MaxCapacity: 1
+
+# Network Configuration
+VpcId: vpc-xxxxxxxxxxxxxxxxx  # Replace with your VPC ID
+SubnetIds:
+  - subnet-xxxxxxxxxxxxxxxxx  # Replace with your subnet ID (AZ 1)
+  - subnet-zzzzzzzzzzzzzzzz  # Replace with your subnet ID (AZ 2)
+
+# Container Configuration
+ContainerName: acquiflow
+ContainerImage: <account-id>.dkr.ecr.<region>.amazonaws.com/acquiflow-dev:latest 
+ContainerPort: 3000 
+CPU: '256'
+Memory: '512'
+HealthCheckGracePeriodSeconds: 60
+DeploymentMaximumPercent: 200
+DeploymentMinimumHealthyPercent: 100
+EnableECSManagedTags: 'true'
+PropagateTags: SERVICE
+EnvironmentVariablesFile: ./env-vars.json
+SecretsFile: ./secrets.json
+task_role : '${Environment}-${ApplicationName}-ecs-task-role'
+execution_role : '${Environment}-ecs-execution-role'
+
+# Auto Scaling Parameters
+EnableCPUScaling: 'true'
+TargetCPUUtilization: 70
+CPUScaleInCooldown: 300
+CPUScaleOutCooldown: 60
+
+EnableMemoryScaling: 'true'
+TargetMemoryUtilization: 80
+MemoryScaleInCooldown: 300
+MemoryScaleOutCooldown: 60
+
+# Stack Names (for resource references)
+SecurityGroupStackName: dev-acquiflow-sg
+IAMStackName: dev-acquiflow-iam
+CloudWatchStackName: dev-acquiflow-logs
+ECRStackName: dev-acquiflow-ecr
+ALBStackName: dev-alb
+TargetGroupStackName: dev-acquiflow-tg
+TaskDefinitionStackName: dev-acquiflow-taskdef
+ECSServiceStackName: dev-acquiflow-service
+AutoScalingStackName: dev-acquiflow-autoscaling
+
+# CloudWatch Configuration
+RetentionInDays: 7
+
+# ECR Configuration
+ImageTagMutability: MUTABLE
+ScanOnPush: 'true'
+
+# IAM Configuration
+# IAM policy document will be loaded from iam.json file
+
+
+# Target Configuration
+HealthCheckPath: /health
+TargetGroupPort: 3000
+HostHeaders: acquiflow.dev.rpxcorp.com
+ListenerType: HTTPS
+Priority: 10
+HealthCheckIntervalSeconds: 30
+HealthCheckTimeoutSeconds: 5
+HealthyThresholdCount: 2
+UnhealthyThresholdCount: 3
+DeregistrationDelay: 30
+HealthCheckMatcherHttpCode: '200'
+
+# # Environment Variables (JSON format)
+# EnvironmentVariables: |
+#   [
+#     {
+#       "name": "NODE_ENV",
+#       "value": "development"
+#     },
+#     {
+#       "name": "LOG_LEVEL",
+#       "value": "info"
+#     },
+#     {
+#       "name": "PORT",
+#       "value": "3000"
+#     },
+#     {
+#       "name": "APP_NAME",
+#       "value": "acquiflow"
+#     },
+#     {
+#       "name": "ENVIRONMENT",
+#       "value": "dev"
+#     },
+#     {
+#       "name": "API_TIMEOUT",
+#       "value": "30000"
+#     },
+#     {
+#       "name": "CORS_ENABLED",
+#       "value": "true"
+#     }
+#   ]
+
+# # Secrets from AWS Secrets Manager or SSM Parameter Store (JSON format)
+# Secrets: |
+#   [
+#     {
+#       "name": "DATABASE_URL",
+#       "valueFrom": "arn:aws:secretsmanager:us-east-1:123456789012:secret:acquiflow/db-url"
+#     },
+#     {
+#       "name": "API_KEY",
+#       "valueFrom": "arn:aws:ssm:us-east-1:123456789012:parameter/acquiflow/api-key"
+#     },
+#     {
+#       "name": "JWT_SECRET",
+#       "valueFrom": "arn:aws:secretsmanager:us-east-1:123456789012:secret:acquiflow/jwt-secret"
+#     },
+#     {
+#       "name": "REDIS_URL",
+#       "valueFrom": "arn:aws:ssm:us-east-1:123456789012:parameter/acquiflow/redis-url"
+#     },
+#     {
+#       "name": "ENCRYPTION_KEY",
+#       "valueFrom": "arn:aws:secretsmanager:us-east-1:123456789012:secret:acquiflow/encryption-key"
+#     }
+#   ]
+

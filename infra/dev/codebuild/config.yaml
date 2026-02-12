@@ -1,0 +1,6 @@
+ProjectName: "dev-codebuild-runner"
+GitHubOrgName: "rpx"
+WorkflowNamePattern: ".*CI-CodeBuild.*"
+ComputeType: "BUILD_ARM1_MEDIUM"
+Environment: "dev"
+Team: "DevOps"

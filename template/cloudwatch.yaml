@@ -1,0 +1,49 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudWatch Log Group for ECS Tasks'
+
+Parameters:
+  Environment:
+    Type: String
+    Description: Environment name
+  
+  ApplicationName:
+    Type: String
+    Description: Name of the application
+  
+  RetentionInDays:
+    Type: Number
+    Description: Number of days to retain logs
+    Default: 7
+    AllowedValues:
+      - 7
+      - 14
+      - 30
+
+Resources:
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/ecs/${Environment}-${ApplicationName}'
+      RetentionInDays: !Ref RetentionInDays
+      Tags:
+        - Key: Name
+          Value: !Sub '${Environment}-${ApplicationName}-log-group'
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Application
+          Value: !Ref ApplicationName
+        - Key: ManagedBy
+          Value: CloudFormation
+
+Outputs:
+  LogGroupName:
+    Description: Name of the CloudWatch Log Group
+    Value: !Ref LogGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-LogGroupName'
+  
+  LogGroupArn:
+    Description: ARN of the CloudWatch Log Group
+    Value: !GetAtt LogGroup.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-LogGroupArn'

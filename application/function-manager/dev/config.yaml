@@ -1,0 +1,79 @@
+# function-manager Application Configuration for Dev Environment
+
+# ECS Service Parameters
+Environment: dev
+ApplicationName: function-manager
+ClusterName: dev-ecs-cluster
+DesiredCount: 1
+MinCapacity: 1
+MaxCapacity: 1
+
+# Network Configuration
+VpcId: vpc-xxxxxxxxxxxxxxxxx  # Replace with your VPC ID
+SubnetIds:
+  - subnet-xxxxxxxxxxxxxxxxx  # Replace with your subnet ID (AZ 1)
+  - subnet-zzzzzzzzzzzzzzzz  # Replace with your subnet ID (AZ 2)
+
+# Container Configuration
+ContainerName: function-manager-ui
+ContainerPort: 80
+APIContainerImage: <account-id>.dkr.ecr.<region>.amazonaws.com/function-manager-api-dev:latest 
+UIContainerImage: <account-id>.dkr.ecr.<region>.amazonaws.com/function-manager-ui-dev:latest 
+APIContainerPort: 3000
+UIContainerPort: 80
+CPU: '512'
+Memory: '1024'
+HealthCheckGracePeriodSeconds: 60
+DeploymentMaximumPercent: 200
+DeploymentMinimumHealthyPercent: 100
+EnableECSManagedTags: 'true'
+PropagateTags: SERVICE
+EnvironmentVariablesFile: ./env-vars.json
+SecretsFile: ./secrets.json
+TaskRole: '${Environment}-${ApplicationName}-ecs-task-role'
+ExecutionRole: '${Environment}-ecs-execution-role'
+
+# Auto Scaling Parameters
+EnableCPUScaling: 'true'
+TargetCPUUtilization: 70
+CPUScaleInCooldown: 300
+CPUScaleOutCooldown: 60
+
+EnableMemoryScaling: 'true'
+TargetMemoryUtilization: 80
+MemoryScaleInCooldown: 300
+MemoryScaleOutCooldown: 60
+
+# Stack Names (for resource references)
+SecurityGroupStackName: dev-function-manager-sg
+IAMStackName: dev-function-manager-iam
+CloudWatchStackName: dev-function-manager-logs
+ECRStackName: dev-function-manager-ecr
+ALBStackName: dev-alb
+TargetGroupStackName: dev-function-manager-tg
+TaskDefinitionStackName: dev-function-manager-taskdef
+ECSServiceStackName: dev-function-manager-service
+AutoScalingStackName: dev-function-manager-autoscaling
+
+# CloudWatch Configuration
+RetentionInDays: 7
+
+# ECR Configuration
+ImageTagMutability: MUTABLE
+ScanOnPush: 'true'
+
+# IAM Configuration
+# IAM policy document will be loaded from iam.json file
+
+# Target Configuration
+HealthCheckPath: /health
+TargetGroupPort: 80
+HostHeaders: function-manager.dev.rpxcorp.com
+ListenerType: HTTPS
+Priority: 20
+HealthCheckIntervalSeconds: 30
+HealthCheckTimeoutSeconds: 5
+HealthyThresholdCount: 2
+UnhealthyThresholdCount: 3
+DeregistrationDelay: 30
+HealthCheckMatcherHttpCode: '200'
